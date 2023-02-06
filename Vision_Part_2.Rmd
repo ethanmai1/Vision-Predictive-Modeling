@@ -34,8 +34,19 @@ table(data$class)
 #1 = no visual impairement (VI), 2= mild VI, 3=moderate VI, 4=blind, 5=severe blindness
 ```
 
-
-
+Table of Contents:
+1. Normalize variables via z-score for kNN
+2. Create training and testing sets
+3. kNN: Test Initial Models
+4. kNN: Determine Optimal k
+5. kNN: Final Model
+6. Multinomial Regression
+7. Pairs plots
+8. Lasso
+9. Finding optima lambda
+10. Lasso Prediction
+11. Repeated 5-fold CV
+12. Boxplot comparing methods, repeated CV
 
 ## Normalize variables via z-score for kNN
 
@@ -142,12 +153,6 @@ hist(train$va5)
 table(test$class)
 table(train$class)
 ```
-
-
-\section{Introduction}
-
-
-\section{Model Fitting}
 
 # kNN: Test Initial Models
 
@@ -301,7 +306,6 @@ test <- data[tst,]
 train <- data[-tst,]
 ```
 
-
 # Pairs plots
 
 ```{r}
@@ -365,7 +369,6 @@ gridd <- c(exp(seq(2,-8,-0.5)),0)
 lasso2 <- glmnet(xxx,yyy, family = "multinomial", alpha = 1, lambda = gridd)
 lasso2$beta
 ```
-
 
 
 #Finding optima lambda
@@ -566,83 +569,4 @@ names(repcv.df) <- c("Method", "Error")
 boxplot(repcv.df$Error~repcv.df$Method)
 
 ```
-
-
-Bootstrap for binomial logistic regression: 'improve' or not
-
-```{r}
-######################
-##BOOTSTRAP 
-##bootstrap sample: 
-nn <- dim(data)[1]
-boott1 <- sample(nn,nn,replace=T)
-sort(boott1)
-table(boott1)
-
-
-###Using bootstrap for estimation
-##Recall the logistic regression model for AHD.
-##model fit coefs
-zz <- summary(glm(fmla,data = data, family = binomial))
-model1 <- as.data.frame(zz$coefficients[,2])
-colnames(model1) <- c("asymptotic_SEs")
-model1
-
-## bootstrap !
-
-#################
-##bootstrap coefs: 1 iteration
-nn <- dim(data)[1]
-coef(glm(fmla,data = data, family = binomial, subset=sample(nn,nn,replace=T)))
-
-####
-##repeat 10 times
-nmbts <- 10
-btcoefs <- matrix(0, ncol=8, nrow=nmbts)
-for (i in 1:nmbts){
-                 btcoefs[i,] <- coef(glm(fmla,data = data, family = binomial,
-                                         subset=sample(nn,nn,replace=T)))
-	       }
-
-btcoefs ##note coefs vary over bootstraps
-
-##compare bootstrap SEs to aymptotic SEs
-sqrt(diag(var(btcoefs)))
-
-# make table
-# names
-boot.10 <- data.frame(variable = names(glm(fmla,data = data, family = binomial, subset=sample(nn,nn,replace=T))$coefficients),
-                  bootstrap_SE = sqrt(diag(var(btcoefs)))
-                  )
-boot.10
-
-##corr
-cor(btcoefs[,1],btcoefs[,2])
-
-####repeat with nmbts <- 1000
-nmbts <- 1000
-btcoefs <- matrix(0, ncol=8, nrow=nmbts)
-for (i in 1:nmbts){
-                   btcoefs[i,] <- coef(glm(fmla,data = data, family = binomial, subset=sample(nn,nn,replace=T)))
-	          }
-summary(btcoefs)
-
-##compare bootstrap SEs to asymptotic SEs
-sqrt(diag(var(btcoefs)))
-
-# make table
-# names
-boot.1000 <- data.frame(variable = names(glm(fmla,data = data, family = binomial, subset=sample(nn,nn,replace=T))$coefficients),
-                  bootstrap_SE = sqrt(diag(var(btcoefs)))
-                  )
-boot.1000
-
-##corr
-cor(btcoefs[,1],btcoefs[,2])
-
-```
-
-
-
-
 
