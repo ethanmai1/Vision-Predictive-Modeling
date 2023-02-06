@@ -1,0 +1,648 @@
+---
+title: "Vision Project Part 2"
+author: "Brian Dang & Ethan Mai & Naomi Wilcox"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(nnet)
+library(MASS)
+library(ggplot2)
+library(GGally)
+library(kableExtra)
+library(dplyr)
+library(glmnet)
+library(class)
+library(knitr)
+
+data = read.csv('data/dataframev2.csv')
+data <- data %>%
+  rename(
+    "irf3" = "vol_irf3",
+    "rpe3" = "vol_rpe3",
+    "srf3" = "vol_srf3",
+    "ped3" = "vol_ped3",
+    "shrm3" = "vol_shrm3",
+    "irhr3" = "vol_intrarethyperreflect3"
+  )
+
+#Create new multiclass outcome variable
+data$class <- cut(data$va5, breaks = c(100,85,70,60,35,0), labels = c(1,2,3,4,5))
+table(data$class)
+#1 = no visual impairement (VI), 2= mild VI, 3=moderate VI, 4=blind, 5=severe blindness
+```
+
+
+
+
+## Normalize variables via z-score for kNN
+
+```{r}
+summary(data$srf3)
+summary(data$shrm3) #these two are similar in mean
+
+summary(data$irf3) #very small mean
+
+summary(data$ped3) #both large in mean
+summary(data$rpe3) #though RPE has a small maximum value
+#boxplot()
+```
+
+We conduct kNN with the Euclidean distance metric. As suggested by the above, the effect in kNN of one biomarker is generally not equal to those of the others. For instance, IRF biomarker is in a significantly smaller numeric scale than other variables. Normalization improves this to generally give equal weight to each predictor. Here we standardize by the z-score: http://cs.wellesley.edu/~cs305/lectures/3_kNN.pdf 
+
+Trade-off here: the Euclidean distances in the kNN used are no longer indicative of the volume. Despite this we care more about each feature having equal weight.
+
+```{r}
+#Gender made binary for kNN
+data$gender.n=as.numeric(data$gender)
+for (i in 1:length(data$gender)){
+  if (data$gender[i] == "Male") {
+    data$gender.n[i] = -1
+  } else {
+    data$gender.n[i] = 1
+  }
+}
+
+##Ethnicity for kNN
+data$eth.afro=as.numeric(data$ethnicity) #initialize
+for (i in 1:length(data$ethnicity)){
+  if (data$ethnicity[i] == "afrocaribbean") {
+    data$eth.afro[i] = 1
+  } else {
+    data$eth.afro[i] = -1
+  }
+}
+
+data$eth.asian=as.numeric(data$ethnicity) #initialize
+for (i in 1:length(data$ethnicity)){
+  if (data$ethnicity[i] == "asian") {
+    data$eth.asian[i] = 1
+  } else {
+    data$eth.asian[i] = -1
+  }
+}
+
+data$eth.cau=as.numeric(data$ethnicity) #initialize
+for (i in 1:length(data$ethnicity)){
+  if (data$ethnicity[i] == "caucasian") {
+    data$eth.cau[i] = 1
+  } else {
+    data$eth.cau[i] = -1
+  }
+}
+
+data$eth.other=as.numeric(data$ethnicity) #initialize
+for (i in 1:length(data$ethnicity)){
+  if (data$ethnicity[i] == "Other") {
+    data$eth.other[i] = 1
+  } else {
+    data$eth.other[i] = -1
+  }
+}
+
+data$eth.unknown=as.numeric(data$ethnicity) #initialize
+for (i in 1:length(data$ethnicity)){
+  if (data$ethnicity[i] == "unknown") {
+    data$eth.unknown[i] = 1
+  } else {
+    data$eth.unknown[i] = -1
+  }
+}
+
+#levels(as.factor(data$agegroup))
+levels(as.factor(data$ethnicity))
+```
+
+```{r}
+#standardization of biomarkers for kNN
+colnames(data[,c(13, 18, 23, 28, 33, 8)])
+indx=c(13, 18, 23, 28, 33, 8)
+for (i in 1:6){
+  data[,indx[i]]=(data[,indx[i]]-mean(data[,indx[i]]))/sd(data[,indx[i]]) #standardize using z-score
+}
+
+#summary(data[,13]) #double check
+#summary(data[,18])
+```
+
+# Create training and testing sets
+
+```{r}
+nn <- dim(data)[1]
+set.seed(123)
+tst <- sample(1:nn, ceiling(nn/3), replace = F)
+test <- data[tst,]
+train <- data[-tst,]
+
+#Comparing the two sets
+hist(test$va5)
+hist(train$va5)
+table(test$class)
+table(train$class)
+```
+
+
+\section{Introduction}
+
+
+\section{Model Fitting}
+
+# kNN: Test Initial Models
+
+The non-numerical features used here are: 'agegroup', 'gender', and 'ethnicity'. We treat these as follows:
+
+-Age group is ordinal. There does not seem to be an easy way to conform this to the Euclidean distance metric, so we omit this variable.
+-Gender is binary, coded as -1 for male, 1 for female. This coding is done to make it similar to the z-score normalized data used in the other predictors.
+-Ethnicity is made into a binary variable, in the same manner as gender, for each measured ethnicity. Therefore there are 5 binary dummy variables to encompass the following ethnicity categories in the data: Afro-Caribbean, Asian, Caucasian, Other, and Unknown.
+
+We attempt the following combinations of predictors: only biomarkers+VA, all predictors, biomarkers+VA+gender, and biomarkers+VA+ethnicity.
+
+```{r}
+ks=c(5, 9, 11, 13, 15, 21, 31) # choices of k that we will try
+misclass.knn=as.data.frame(cbind(ks, ks, ks, ks)) #initialize
+misclass.knncv=as.data.frame(cbind(ks, ks)) #initialize
+
+rownames(misclass.knn)=c("k=5", "9", "11", "13", "15", "21", "31")
+colnames(misclass.knn)=c("biomarker+VA misclassification", "full kNN", "
+                         biomarkers+VA+gender", "biomarkers+VA+ethnicity")
+
+xnames.bio <- c("ped3", "shrm3", "irf3", "srf3", "rpe3", "va3")
+xnames <- c("ped3", "shrm3", "irf3", "srf3", "rpe3", "gender.n", "eth.afro", 
+            "eth.asian", "eth.cau", "eth.other", "eth.unknown", "va3")
+xnames.gen <- c("ped3", "shrm3", "irf3", "srf3", "rpe3", "gender.n", "va3")
+xnames.eth <- c("ped3", "shrm3", "irf3", "srf3", "rpe3", "eth.afro", 
+            "eth.asian", "eth.cau", "eth.other", "eth.unknown", "va3")
+
+for (i in 1:length(ks)){
+  knn.pred.bio <- knn(train[,xnames.bio], test[,xnames.bio],train$class, k=ks[i]) #biomarker+VA-only model
+  knn.pred <- knn(train[,xnames], test[,xnames],train$class, k=ks[i]) 
+  #model with all predictors
+  knn.pred.gen <- knn(train[,xnames.gen], test[,xnames.gen],train$class, k=ks[i]) 
+  knn.pred.eth <- knn(train[,xnames.eth], test[,xnames.eth],train$class, k=ks[i]) 
+
+  tbl.bio <- table(knn.pred.bio, test$class) #tables of predicted vs true class.
+  tbl <- table(knn.pred, test$class) #diagonals are agreement b/t model and truth
+  tbl.gen <- table(knn.pred.gen, test$class)
+  tbl.eth <- table(knn.pred.eth, test$class)
+  
+  # (number of misclassifications)/total
+  mis.bio=(nrow(test)-sum(diag(tbl.bio)))/nrow(test) # biomarker-only
+  mis=(nrow(test)-sum(diag(tbl)))/nrow(test) #misclassification from full kNN
+  mis.gen=(nrow(test)-sum(diag(tbl.gen)))/nrow(test) 
+  mis.eth=(nrow(test)-sum(diag(tbl.eth)))/nrow(test)
+  
+  misclass.knn[i,1]=mis.bio #store values
+  misclass.knn[i,2]=mis
+  misclass.knn[i,3]=mis.gen
+  misclass.knn[i,4]=mis.eth
+}
+##k=5
+
+misclass.knn
+```
+
+
+From the above we notice that the biomarker+VA misclassification is consistently the lowest, and thus the best. Thus, we continue with only the biomarkers+VA at time 3 as features.
+
+# kNN: Determine Optimal k
+
+Below is repeated LOOCV with the entire dataset, not with the previously specified training set. LOOCV is implemented only for the purpose of finding the optimal k here.
+
+```{r}
+##repeated LOOCV
+library(boot)
+numcv=200 #number of repetitions
+cv.rep.mis <- as.data.frame(matrix(0, nrow=numcv, ncol=length(ks))) #dataframe of misclassification errors
+colnames(cv.rep.mis)=rownames(misclass.knn)
+
+for (z in 1:numcv){
+  for (i in 1:length(ks)){
+    knncv.pred.bio <- knn.cv(data[,xnames.bio], data$class, k=ks[i])
+    tbl.bio <- table(knncv.pred.bio, data$class)
+    mis.bio=(nrow(data)-sum(diag(tbl.bio)))/nrow(data) # biomarker-only
+    cv.rep.mis[z, i]=mis.bio #store values
+  }
+}
+head(cv.rep.mis)
+boxplot(cv.rep.mis, ylab='Misclassification rate', xlab='k in kNN', 
+        title='LOOCV over 200 repetitions')
+```
+
+# kNN: Final Model
+
+It seems that k=15 is optimal. Thus this is the k for our final model. Below we find the error rate over 2000 repetitions of this final model, given the original test-train data split.
+
+```{r}
+mis.final=numeric(2000) # vector of misclassification error 
+
+for (z in 1:2000){
+    knn.final <- knn(train[,xnames.bio], test[,xnames.bio],train$class, k=15) #biomarker+VA-only model
+    tbl.bio <- table(knn.final, test$class)
+    mis.bio=(nrow(test)-sum(diag(tbl.bio)))/nrow(test)
+    mis.final[z]=mis.bio #store values
+  }
+
+summary(mis.final)
+
+```
+
+
+
+
+
+# Multinomial Regression
+
+```{r}
+data = read.csv('data/dataframev2.csv')
+data <- data %>%
+  rename(
+    "irf4" = "vol_irf4",
+    "rpe4" = "vol_rpe4",
+    "srf4" = "vol_srf4",
+    "ped4" = "vol_ped4",
+    "shrm4" = "vol_shrm4",
+    "irhr4" = "vol_intrarethyperreflect4",
+    "irf3" = "vol_irf3",
+    "rpe3" = "vol_rpe3",
+    "srf3" = "vol_srf3",
+    "ped3" = "vol_ped3",
+    "shrm3" = "vol_shrm3",
+    "irhr3" = "vol_intrarethyperreflect3"
+  ) 
+
+
+data$agegroup <- factor(data$agegroup)
+data$ethnicity <- factor(data$ethnicity)
+data$gender <- factor(data$gender)
+levels(data$gender) <- c(1,0) #female = 1
+levels(data$agegroup) <- c(1,2,3,4) #1= 50-59,2= 60-69,3= 70-79,4= 80+
+levels(data$ethnicity) <- c(1,2,3,4,5) #1=afrocaribbean, 2=asian, 3=caucasian, 4=other, 5=unkown
+
+#Create new multiclass outcome variable
+data$class <- cut(data$va5, breaks = c(100,85,70,60,35,0), labels = c(1,2,3,4,5))
+data$class3 <- cut(data$va3, breaks = c(100,85,70,60,35,0), labels = c(1,2,3,4,5), include.lowest = T)
+table(data$class)
+#1 = no visual impairement (VI), 2= mild VI, 3=moderate VI, 4=blind, 5=severe blindness
+
+
+#create change in va1 and va3 variable
+data$change <- cut(data$va3-data$va1, breaks = c(-Inf,0,Inf), labels = c("Decrease","Increase"))
+data$blind <- ifelse(data$va5 < 60,1,0)
+data$improve <- ifelse(data$va5 >= data$va3,1,0) #or time 1
+
+
+#Create training and testing sets
+nn <- dim(data)[1]
+set.seed(123)
+tst <- sample(1:nn, ceiling(nn/5), replace = F)
+test <- data[tst,]
+train <- data[-tst,]
+```
+
+
+# Pairs plots
+
+```{r}
+ggpairs(data, columns = c(42, 8,5,3, 13,18,23,28,33,38), columnLabels = c("Class","VA3","Gender","Ethnicity", "IRF3","RPE3","SRF3","PED3","SHRM3","IRHR3"))
+```
+
+```{r}
+#"changeirf","changerpe","changesrf","changeped","changeshrm","changeirhr"
+xnams <- c("va3", "irf3", "rpe3", "srf3", "ped3", "shrm3","irhr3")
+fmla2 <- as.formula(paste("class ~ ", paste(xnams, collapse= "+")))
+
+
+mlogist <- multinom(fmla2, data=train, na.actoin=na.omit)
+smlogist <- summary(mlogist)
+lab <- c("Incercept", "VA3","IRF3","RPE3","SRF3","PED3","SHRM3","IRHR3")
+kable(smlogist$coefficients, caption = "Coefficients for multinomial regression", col.names = lab) %>%
+  kable_styling(latex_options = c("striped")) %>%
+  landscape
+
+kable(smlogist$standard.errors, caption = "Standard errors for model coefficients", col.names = lab) %>%
+  kable_styling(latex_options = c("striped")) %>%
+  landscape
+#exp(coef(mlogist))
+
+##inference
+z <- summary(mlogist)$coeff/summary(mlogist)$standard.error
+p <- (1-pnorm(abs(z),0,1))*2
+kable(p, caption = "2-tailed z test for model coefficients", col.names = lab) %>%
+  kable_styling(latex_options = c("striped")) %>%
+  landscape
+
+##predicted probabilities
+#fitted(mlogist)[1:20,]
+#predict(mlogist)[1:20]
+kable(cbind(1:5,table(Predicted=predict(mlogist, newdata = test),True=test$class)), row.names = F, caption = "Test Set: Predicted vs. True classification", col.names = c("Predicted Class","1","2","3","4","5")) %>%
+  add_header_above(header = c(" ","True Class"=5))
+
+kable(cbind(1:5,table(Predicted=predict(mlogist, newdata = train),True=train$class)), row.names = F, caption = "Training Set: Predicted vs. True classification", col.names = c("Predicted Class","1","2","3","4","5")) %>%
+  add_header_above(header = c(" ","True Class"=5))
+
+##accuracy
+sum(diag(table(predict(mlogist,newdata = test),test$class)))/sum(table(predict(mlogist, newdata = test),test$class))
+sum(diag(table(predict(mlogist,newdata = train),train$class)))/sum(table(predict(mlogist, newdata = train),train$class))
+```
+
+
+
+$$
+\begin{aligned}
+p_I=P(Y=I| \vec X)= \frac{ exp \left( \beta_0 + \beta_{1I}VA3 + \beta_{2I}IRF3 + \beta_{3I}RPE3 + ... +\beta_{8I}IRHR3 \right)}{1+\sum_{k=1}^4 exp \left( \beta_0 + \beta_{1k}VA3 + \beta_{2k}IRF3 + \beta_{3k}RPE3 + ... +\beta_{8k}IRHR3 \right)} \\
+p_1 = P(Y=1|\vec X) = \frac{1}{1+\sum_{k=1}^4 exp \left( \beta_0 + \beta_{1k}VA3 + \beta_{2k}IRF3 + \beta_{3k}RPE3 + ... +\beta_{8k}IRHR3\right)}
+\end{aligned}
+$$
+
+
+# Lasso
+```{r}
+xxx <- model.matrix(~.,train[,xnams])
+yyy <- train$class
+gridd <- c(exp(seq(2,-8,-0.5)),0)
+lasso2 <- glmnet(xxx,yyy, family = "multinomial", alpha = 1, lambda = gridd)
+lasso2$beta
+```
+
+
+
+#Finding optima lambda
+```{r}
+set.seed(123)
+cv.lso2 <- cv.glmnet(xxx,yyy,family="multinomial",type.multinomial = "grouped", alpha = 1, intercept = T)
+(lmin<- cv.lso2$lambda.min)
+log(cv.lso2$lambda.min)
+index <- which(cv.lso2$lambda == lmin)
+plot(cv.lso2, main="Lasso")
+l <- cv.lso2$glmnet.fit$beta
+
+l2 <- rbind(l$'1'[,index], l$'2'[,index], l$'3'[,index], l$'4'[,index], l$'5'[,index])
+kable(cbind(1:5,l2), col.names = c("Class",lab), caption = "Training Set: LASSO Coefficients") %>%
+  kable_styling(latex_options = c("striped")) %>%
+  landscape
+```
+
+
+# Lasso Prediction
+```{r}
+lasso3 <- glmnet(xxx,yyy, family = "multinomial", alpha = 1)
+lso.train.pred <- predict(lasso3, newx =  model.matrix(~.,train[,xnams]), s=lmin, type = "class")
+lso.test.pred <- predict(lasso3, newx =  model.matrix(~.,test[,xnams]), s=lmin, type = "class")
+
+t1 <- table(Predicted = lso.train.pred,True = train$class)
+t2 <- table(Predicted = lso.test.pred, True = test$class)
+
+kable(cbind(1:4,t2), caption = "Test Set: Predicted vs. True classification", col.names = c("Predicted Class","1","2","3","4","5")) %>%
+  add_header_above(header = c(" ","True Class"=5))
+
+kable(cbind(1:4,t1), caption = "Training Set: Predicted vs. True classification", col.names = c("Predicted Class","1","2","3","4","5")) %>%
+  add_header_above(header = c(" ","True Class"=5))
+
+
+
+
+##accuracy
+sum(diag(t1))/sum(t1)
+sum(diag(t2))/sum(t2)
+```
+
+
+
+# Repeated 5-fold CV
+
+```{r}
+cost.fn <- function(r, pii = 0) mean(abs(r-pii) > 0.5)
+##BEGIN CV FN
+
+
+
+#fmla <- fmla1
+
+cv_loki.fn <- function(stsd,dataa, methodd, fmlaa, responsee, costt,numflds,xnamms, resp.coll, knn.numm){
+               if (stsd == TRUE) {set.seed(1988)}
+               nn <- dim(dataa)[1]
+               kk <- floor(nn/numflds) ##size of each fold. May need to tweak
+               fitt.pred <- rep(NA,nn)
+#cat(nn,"\t",kk,"\t", mean(fitt.pred),"\n")
+
+               fold <- list(NULL)
+               fold[[1]] <- sample((1:nn),kk) ## sample to get first fold
+               for (i in 2:(numflds-1)){ ##sample to get each  fold
+                    fold[[i]] <- sample((1:nn)[-unlist(fold[1:(i-1)])],kk)
+               }
+               fold[[numflds]] <- (1:nn)[-unlist(fold[1:(numflds-1)])] ##last fold may not have size kk
+ 
+              for (i in 1:length(fold)){ ##get held-out set, and training set
+                  heldoutt <- fold[[i]]
+                  trainn <- dataa[-heldoutt,] 
+                  if (methodd == "ldaa"){ 
+                      fitt <- lda(fmla,data = trainn,na.rm=T)
+                      fp <- predict(fitt,dataa[heldoutt,])$posterior[,2]
+                   }
+                  else if (methodd=="logisticc"){
+                       fitt <- glm(fmla,data = trainn, family=binomial,na.action=na.omit)
+                       fp <- predict(fitt, dataa[heldoutt,], type = "response")
+                   }
+                   else if (methodd == "qdaa"){ 
+                       fitt <- qda(fmla,data = trainn,na.rm=T)
+                       fp <- predict(fitt,dataa[heldoutt,])$posterior[,2]
+                   }
+                   else if (methodd=="knnn"){
+                        fitt <- knn(trainn[,xnamms],dataa[heldoutt,xnamms],trainn[,resp.coll],knn.numm)
+                        fp <- as.numeric(fitt)-1
+                   }
+#cat(i, "\t",length(fp),"\t", length(heldoutt),"\t",dim(trainn),"\t", mean(fp),"\n")
+#cat(round(fp,2))
+                   fitt.pred[heldoutt]  <- fp
+#cat(i, "\t",length(fp),"\t", length(heldoutt),"\t",dim(trainn),"\n")
+#cat(mean(fp),"\t", mean(fitt.pred[!is.na(fitt.pred)]), "\t", sum(!is.na(fitt.pred)),"\n")
+                   rm(heldoutt,trainn,fp)
+              }
+              errorr <- costt(responsee,fitt.pred)
+#              acc.tbl <- table(dataa[,resp.coll],fitt.pred>0.5) 
+#              acc <- sum(diag(acc.tbl))/sum(acc.tbl)
+              outt <- list(numflds, methodd,fitt.pred, errorr)
+              names(outt) <- c("number of folds", "fittting method", "predicted probabilities","error")
+#cat(coef(fitt), "\n",length(fitt.pred), mean(fitt.pred),"\n")
+#cat(outt[[4]],"\n",outt[[3]])
+              outt
+}
+
+```
+
+# Boxplot comparing methods, repeated CV
+
+```{r}
+##END CV FN
+##############################################################
+xnams <- c("va3","irf3", "rpe3", "srf3", "ped3", "shrm3","irhr3")
+fmla <- as.formula(paste("improve ~ ", paste(xnams, collapse= "+")))
+
+model1 <- glm(fmla, family = binomial, data=train)
+
+
+##logistic
+jnkk <- cv_loki.fn(TRUE,data,"logisticc",fmla,as.numeric(data$improve)-1,cost.fn,dim(data)[1])
+jnkk[[4]]
+
+#### LDA
+#  jnkk <- cv_loki.fn(TRUE, Heart,"ldaa",fmla,as.numeric(Heart$AHD)-1,cost.fn,dim(Heart)[1])
+# jnkk[[4]]
+# 
+# 
+# 
+# ### QDA
+#  jnkk <- cv_loki.fn(TRUE, Heart,"qdaa",fmla,as.numeric(Heart$AHD)-1,cost.fn,dim(Heart)[1])
+# jnkk[[4]]
+
+####k-NN with $k=5$
+library(class)
+jnkk <- cv_loki.fn(TRUE,
+                    data,"knnn",fmla,as.numeric(train$data)-1,
+                    cost.fn,dim(data)[1],xnams,15,5)
+jnkk[[4]]
+
+
+################
+
+##FIVE-FOLD CV: one iteration for logistic
+#logr.fit <- glm(fmla,data = Heart, family=binomial)
+cv.glm(data,model1,cost.fn,K=5)$delta
+
+
+##TEN-FOLD: one iteration for logistic
+cv.glm(data,model1,cost.fn,K=10)$delta
+
+###########################################################
+###FIVE-FOLD cross validation misclassification error for Heart data for
+##logistic, lda, qda, kNN
+
+
+###Logistic
+ jnkk <- cv_loki.fn(TRUE, data,"logisticc",fmla,as.numeric(data$improve)-1,cost.fn,5)
+jnkk[[4]]
+
+# ##### LDA
+#  jnkk <- cv_loki.fn(TRUE,Heart,"ldaa",fmla,as.numeric(Heart$AHD)-1,cost.fn,5)
+# jnkk[[4]]
+# 
+# #### QDA
+#  jnkk <- cv_loki.fn(TRUE,Heart,"qdaa",fmla,as.numeric(Heart$AHD)-1,cost.fn,5)
+# jnkk[[4]]
+
+######k-NN with $k=5$
+ jnkk <- cv_loki.fn(TRUE,data,"knnn",fmla,as.numeric(data$improve)-1,cost.fn,5,xnams,15,5)
+jnkk[[4]]
+
+
+
+################################################################
+###REPEATED CV
+
+### doing repeated CV
+numcvs <- 100
+
+lgg <- rep(-1,numcvs) #logistic
+# ldd <- rep(-1,numcvs) #lda
+# qdd <- rep(-1,numcvs) #qda
+kkn <- rep(-1,numcvs) #knn
+stsdd <- FALSE
+
+
+for (j in 1:numcvs){
+         cat(j)
+          lgg[j] <- cv_loki.fn(stsdd,data,"logisticc",fmla,as.numeric(data$improve)-1,cost.fn,5,FALSE)[[4]]
+         # ldd[j] <- cv_loki.fn(stsdd,Heart,"ldaa",fmla,as.numeric(Heart$AHD)-1,cost.fn,5,FALSE)[[4]]
+         # qdd[j] <- cv_loki.fn(stsdd,Heart,"qdaa",fmla,as.numeric(Heart$AHD)-1,cost.fn,5,0,15)[[4]]
+         kkn[j] <- cv_loki.fn(stsdd,data,"knnn",fmla,as.numeric(data$improve)-1,cost.fn,5,xnams,15,5)[[4]]
+}
+
+repcv.df <-data.frame(c(rep("logistic",numcvs),rep("knn",numcvs)), c(lgg,kkn),row.names=NULL)
+
+names(repcv.df) <- c("Method", "Error")
+
+boxplot(repcv.df$Error~repcv.df$Method)
+
+```
+
+
+Bootstrap for binomial logistic regression: 'improve' or not
+
+```{r}
+######################
+##BOOTSTRAP 
+##bootstrap sample: 
+nn <- dim(data)[1]
+boott1 <- sample(nn,nn,replace=T)
+sort(boott1)
+table(boott1)
+
+
+###Using bootstrap for estimation
+##Recall the logistic regression model for AHD.
+##model fit coefs
+zz <- summary(glm(fmla,data = data, family = binomial))
+model1 <- as.data.frame(zz$coefficients[,2])
+colnames(model1) <- c("asymptotic_SEs")
+model1
+
+## bootstrap !
+
+#################
+##bootstrap coefs: 1 iteration
+nn <- dim(data)[1]
+coef(glm(fmla,data = data, family = binomial, subset=sample(nn,nn,replace=T)))
+
+####
+##repeat 10 times
+nmbts <- 10
+btcoefs <- matrix(0, ncol=8, nrow=nmbts)
+for (i in 1:nmbts){
+                 btcoefs[i,] <- coef(glm(fmla,data = data, family = binomial,
+                                         subset=sample(nn,nn,replace=T)))
+	       }
+
+btcoefs ##note coefs vary over bootstraps
+
+##compare bootstrap SEs to aymptotic SEs
+sqrt(diag(var(btcoefs)))
+
+# make table
+# names
+boot.10 <- data.frame(variable = names(glm(fmla,data = data, family = binomial, subset=sample(nn,nn,replace=T))$coefficients),
+                  bootstrap_SE = sqrt(diag(var(btcoefs)))
+                  )
+boot.10
+
+##corr
+cor(btcoefs[,1],btcoefs[,2])
+
+####repeat with nmbts <- 1000
+nmbts <- 1000
+btcoefs <- matrix(0, ncol=8, nrow=nmbts)
+for (i in 1:nmbts){
+                   btcoefs[i,] <- coef(glm(fmla,data = data, family = binomial, subset=sample(nn,nn,replace=T)))
+	          }
+summary(btcoefs)
+
+##compare bootstrap SEs to asymptotic SEs
+sqrt(diag(var(btcoefs)))
+
+# make table
+# names
+boot.1000 <- data.frame(variable = names(glm(fmla,data = data, family = binomial, subset=sample(nn,nn,replace=T))$coefficients),
+                  bootstrap_SE = sqrt(diag(var(btcoefs)))
+                  )
+boot.1000
+
+##corr
+cor(btcoefs[,1],btcoefs[,2])
+
+```
+
+
+
+
+
