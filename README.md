@@ -1,4 +1,4 @@
-# Vision-Predictive-Modeling
+# Using OCT Biomarker Data to Predict Visual Acuity after One Year of VEGF Therapy
 
 ## Background
 
@@ -11,4 +11,8 @@ Prior studies have shown that characterization of retinal structures is correlat
 
 In our project we hope to expand on their regression model by incorporating categorical independent variables such as gender and ethnicity, as these are known risk factors for AMD. This project is divided into two parts. In the first part, we incorporate linear OLS regression to achieve the following goals: 1) to determine whether these OCT biomarkers are associated with visual acuity, and 2) to predict visual acuity one year after the start of anti-VEGF therapy given the results from the first two months.
 
-In the second part of this project, we have the goal of determining whether a parametric or non-parametric approach would be favorable in predicting patient vision class using the biomarker data. We do this by attempting a multinomial regression to classify the patients, and comparing the results with performing k-nearest neighbors (kNN) classification. For more information, please reach out to Ethan Mai: 1mai.ethan@gmail.com
+In the second part of this project, we have the goal of determining whether a parametric or non-parametric approach would be favorable in predicting patient vision class using the biomarker data. We do this by attempting a multinomial regression to classify the patients, and comparing the results with performing k-nearest neighbors (kNN) classification.
+
+## Notes
+
+Analysis was conducted in RStudio Version 2022.12.0+353 (2022.12.0+353). Code is presented in RMarkdown (.Rmd) files, with additional details in-text. The raw dataset for this project is the 'dataframev2.csv' file. For more information, please feel free to reach out to Ethan Mai: 1mai.ethan@gmail.com
