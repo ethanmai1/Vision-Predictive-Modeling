@@ -15,4 +15,4 @@ In the second part of this project, we have the goal of determining whether a pa
 
 ## Notes
 
-Analysis was conducted in RStudio Version 2022.12.0+353 (2022.12.0+353). Code is presented in RMarkdown (.Rmd) files, with additional details in-text. The raw dataset for this project is the 'dataframev2.csv' file. For more information, please feel free to reach out to Ethan Mai: 1mai.ethan@gmail.com
+Analysis was conducted in RStudio Version 2022.12.0+353 (2022.12.0+353). Code is presented in RMarkdown (.Rmd) files without displaying figures & tables, as well as in .pdf files including figures & tables. The raw dataset for this project is the 'dataframev2.csv' file. For more information, please feel free to reach out to Ethan Mai: 1mai.ethan@gmail.com
