@@ -10,11 +10,11 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = F, message = F)
+knitr::opts_chunk$set(echo = T, message = F, warning = F)
 ```
 
 ```{r}
-AMD <- as.data.frame(read.csv("/Users/ethanmai/Downloads/dataframev2.csv", header = TRUE, stringsAsFactors = FALSE))
+AMD <- as.data.frame(read.csv("~/Downloads/dataframev2.csv", header = TRUE, stringsAsFactors = FALSE))
 library(ggplot2)
 library(GGally)
 library(knitr)
@@ -24,18 +24,31 @@ library(lmtest)
 ```
 
 Table of Contents:
+
 1. Model 1
+
 2. Model 2
+
 3. Model 3 (Final Model)
+
 4. Model Diagnostics on Model 3
+
 5. ANOVA
+
 6. Variable Selection
+
 7. Addressing Heteroscedasticity
+
   7.a. Weighted Least Squares
+
   7.b. Choosing Weights
+
   7.c. Fitting WLS
+
   7.d. Sandwich Estimator
+
   7.e. Bootstrap
+
 8. Cross-validation
 
 Note that appropriate data transformations were applied after looking at initial model fits (i.e. transformations were applied in the 'Model 2' and 'Model 3' sections).

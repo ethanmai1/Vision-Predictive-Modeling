@@ -6,7 +6,7 @@ output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
 library(nnet)
 library(MASS)
 library(ggplot2)
@@ -35,15 +35,25 @@ table(data$class)
 ```
 
 Table of Contents:
+
 1. kNN: Normalize variables via z-score
+
 2. Create training and testing sets
+
 3. kNN: Test Initial Models
+
 4. kNN: Determine Optimal k
+
 5. kNN: Final Model
+
 6. Multinomial Regression
+
 7. Pairs plots
+
 8. Lasso
+
 9. Finding optimal lambda
+
 10. Lasso Prediction
 
 # 1. kNN: Normalize variables via z-score
@@ -56,7 +66,6 @@ summary(data$irf3) #very small mean
 
 summary(data$ped3) #both large in mean
 summary(data$rpe3) #though RPE has a small maximum value
-#boxplot()
 ```
 
 We conduct kNN with the Euclidean distance metric. As suggested by the above, the effect in kNN of one biomarker is generally not equal to those of the others. For instance, IRF biomarker is in a significantly smaller numeric scale than other variables. Normalization improves this to generally give equal weight to each predictor. Here we standardize by the z-score: http://cs.wellesley.edu/~cs305/lectures/3_kNN.pdf 
