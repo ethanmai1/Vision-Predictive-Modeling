@@ -1,0 +1,232 @@
+---
+title: "Using OCT Biomarkers to Predict Visual Acuity after One Year of VEGF Therapy"
+author: "Brian Dang and Ethan Mai"
+date: "12/6/2021"
+output:
+  pdf_document: default
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F)
+```
+
+```{r}
+AMD <- as.data.frame(read.csv("/Users/ethanmai/Downloads/dataframev2.csv", header = TRUE, stringsAsFactors = FALSE))
+library(ggplot2)
+library(GGally)
+library(knitr)
+library(car)
+library(MASS)
+library(lmtest)
+```
+
+Table of Contents:
+1. Model 1
+2. Model 2
+3. Model 3 (Final Model)
+4. Model Diagnostics on Model 3
+5. ANOVA
+6. Variable Selection
+7. Addressing Heteroscedasticity
+  7.a. Weighted Least Squares
+  7.b. Choosing Weights
+  7.c. Fitting WLS
+  7.d. Sandwich Estimator
+  7.e. Bootstrap
+8. Cross-validation
+
+Note that appropriate data transformations were applied after looking at initial model fits (i.e. transformations were applied in the 'Model 2' and 'Model 3' sections).
+
+# 1. Model 1
+```{r}
+ggpairs(AMD,columns = c(10,8,13,18,23,28,33,3,5), columnLabels = c("VA5","VA3","IRF 3", "RPE 3","SRF 3","PED 3","SHRM 3","Ethnicity","Gender"), title = "Fig 1. Pairs plot of our untransformed response and predictors")
+model1 <- lm(va3~vol_irf3 + vol_rpe3 + vol_srf3+ vol_ped3+vol_shrm3 + ethnicity+gender, data = AMD)
+```
+
+```{r}
+tab_1 <- data.frame(round(summary(model1)$coefficients,4))
+kable(tab_1, caption = "OLS Coefficient Estimates for Model 1, $adj R^2=0.1149$", col.names = c("Estimate","Std. Error", "t value","P(>|t|)"))
+```
+
+
+# 2. Model 2
+```{r}
+AMD$score <- 100-AMD$va5
+AMD$base <-100-AMD$va3
+AMD <- transform(AMD, lscore = log(score), lbase=log(base), lsrf3=log(vol_srf3),lped3=log(vol_ped3), lshrm3=log(vol_shrm3))
+ind <- which(AMD$vol_srf3 < 0.0000001)
+AMD.sub <- AMD[-ind,]
+ind2<- which(AMD.sub$vol_shrm3 < 0.0000001)
+AMD.sub <- AMD.sub[-ind2,]
+AMD.sub$irf3 <- factor(ifelse(AMD.sub$vol_irf3 < 0.0000001, "No","Yes"))
+model2 <- lm(lscore~ lbase+as.factor(irf3) + vol_rpe3 + lsrf3+ lped3+lshrm3,data = AMD.sub)
+```
+
+
+```{r}
+ggpairs(AMD.sub,columns = c(44,45,49,18,46,47,48), columnLabels = c("log(Score)","log(Base)","IRF3 Present", "RPE3","log(SRF3)","log(PED3)","log(SHRM3)"), title = "Fig 2. Pairs plot of our transformed response and predictors")
+```
+
+```{r}
+tab_2 <- data.frame(round(summary(model2)$coefficients,4))
+kable(tab_2, caption = "OLS Coefficient Estimates for Model 2, $adj R^2=0.5907$", col.names = c("Estimate","Std. Error", "t value","P(>|t|)"))
+```
+
+
+# 3. Model 3 (Final Model):
+```{r}
+AMD$irf_change <- round(AMD$vol_irf5-AMD$vol_irf3,4)
+AMD$rpe_change <- round(AMD$vol_rpe5-AMD$vol_rpe3,4)
+AMD$srf_change <- round(AMD$vol_srf5-AMD$vol_srf3,4)
+AMD$ped_change <- round(AMD$vol_ped5-AMD$vol_ped3,4)
+AMD$shrm_change <- round(AMD$vol_shrm5-AMD$vol_shrm3,4)
+
+AMD$irfcat <-cut(AMD$irf_change, breaks = c(-Inf,-.005,.005,Inf), labels = c("decrease","zero","increase"))
+AMD$rpecat <-cut(AMD$rpe_change, breaks = c(-Inf,-.01,.01,Inf), labels = c("decrease","zero","increase"))
+AMD$srfcat <-cut(AMD$srf_change, breaks = c(-Inf,-.01,.01,Inf), labels = c("decrease","zero","increase"))
+AMD$pedcat <-cut(AMD$ped_change, breaks = c(-Inf,-.05,.05,Inf), labels = c("decrease","zero","increase"))
+AMD$shrmcat <-cut(AMD$shrm_change, breaks = c(-Inf,-.005,.005,Inf), labels = c("decrease","zero","increase"))
+AMD$irfcat<- relevel(AMD$irfcat,"zero")
+AMD$rpecat<- relevel(AMD$rpecat,"zero")
+AMD$srfcat<- relevel(AMD$srfcat,"zero")
+AMD$pedcat<- relevel(AMD$pedcat,"zero")
+AMD$shrmcat<- relevel(AMD$shrmcat,"zero")
+```
+
+```{r}
+ggpairs(AMD,columns = c(44,45,54,55,56,57,58), columnLabels = c("log(Score)","log(Base)","IRF change", "RPE change","SRF change","PED change","SHRM change"), title = "Fig 3 Pairs plot of our response and predictos after factorizing the OCT biomarkers")
+```
+
+```{r}
+model3 <- lm(lscore~lbase+irfcat+rpecat+srfcat+pedcat+shrmcat,data = AMD)
+tab_3 <- data.frame(round(summary(model3)$coefficients,4))
+kable(tab_3, caption = "OLS Coefficient Estimates for Model 3, $adj R^2=0.6076$", col.names = c("Estimate","Std. Error", "t value","P(>|t|)"))
+```
+
+
+# 4. Model Diagnostics on Model 3
+```{r}
+residualPlots(model3,main="Fig 4. Residuals plot of Model 3")
+```
+
+```{r}
+qqPlot(model3,main = "QQ Plot for for")
+```
+
+```{r}
+ncvTest(model3)
+```
+
+
+# 5. ANOVA
+```{r}
+model31 <- lm(lscore~lbase,data = AMD)
+anova(model31,model3)
+```
+
+```{r}
+Anova(model3)
+```
+
+# 6. Variable Selection
+```{r}
+stepAIC(model3, direction = "backward")
+```
+
+
+# 7. Addressing Heteroscedasticity
+
+
+### 7.a. Weighted Least Squares
+
+### 7.b. Choosing Weights
+```{r}
+emodel<- lm(abs(model3$residuals)~model3$fitted.values)
+plot(abs(model3$residuals) ~ model3$fitted.values)
+abline(emodel)
+```
+
+### 7.c. Fitting WLS
+```{r}
+wt <- 1/emodel$fitted.values^2
+wmodel3 <- lm(log(score)~log(base)+irfcat+rpecat+srfcat+pedcat+shrmcat,data = AMD,weights = wt)
+tab_3w <- data.frame(round(summary(wmodel3)$coefficients,4))
+kable(tab_3w, caption = "Weighted Least Squares Estimates for Model 3", col.names = c("Estimate","Std. Error", "t value","P(>|t|)"))
+```
+
+
+```{r}
+ncvTest(wmodel3)
+```
+
+### 7.d. Sandwich Estimator
+```{r}
+model3.sandwich = coeftest(model3,vcov. = hccm(model3, type="hc3"))
+sandwich.se = round(sqrt(diag(hccm(model3, type="hc3"))), 4)
+coef_est = data.frame(round(cbind(coef(model3),coef(wmodel3),model3.sandwich[,1]),4))
+se_est = data.frame(round(cbind(sqrt(diag(vcov(model3))),sqrt(diag(vcov(wmodel3))),sandwich.se),4))
+colnames(coef_est) = colnames(se_est) = c("OLS","WLS","Sandwich")
+se_est2 = data.frame(round(cbind(sqrt(diag(vcov(model3))),sqrt(diag(vcov(wmodel3)))),4))
+
+kable(se_est2, caption = "Comparison of SE for OLS and WLS estimation for Model 3", col.names = c("OLS","WLS"))
+```
+
+### 7.e. Bootstrap
+```{r}
+set.seed(123)
+nboot = 1000
+n=nrow(AMD)
+dat.boot <- matrix(0,nboot,12)
+for (i in 1:nboot){
+  indices <- sample(seq(1,n), replace=T)
+  m.boot <- lm(log(score)~log(base)+irfcat+rpecat+srfcat+pedcat+shrmcat,data = AMD[indices,])
+  dat.boot[i,] <- m.boot$coefficients
+}
+mean.boot <- round(apply(dat.boot, 2, mean),4)
+se.boot<-round(apply(dat.boot, 2, sd),4)
+coef_est$Bootstrap = mean.boot
+se_est$Bootstrap = se.boot
+```
+
+```{r}
+print(se_est)
+```
+
+
+# 8. Cross Validation
+```{r}
+k <- 10
+n.obs <- nrow(AMD)
+random.order <- sample(seq(1,n.obs),n.obs, replace=F)
+cv.size <- rep(floor(n.obs/k),k)
+cum.size <- c(0, cumsum(cv.size[-length(cv.size)]))
+error.reduced <- rep(0,k)
+error.full <- rep(0,k)
+for (i in 1:k) {
+  inds <- (cum.size[i]+1):(cum.size[i]+cv.size[i])
+  AMD.subset <- AMD[-random.order[inds],]
+  lm.reduced <- lm(lscore ~ log(base), data=AMD.subset)
+  lm.full <- lm(lscore~lbase+irfcat+rpecat+srfcat+pedcat+shrmcat,data = AMD.subset)
+  test.data <- AMD[random.order[inds],]
+  predict.full <- predict.lm(lm.full,test.data)
+  error.full[i] <- sqrt(mean((test.data$lscore - predict.full)^2))
+  predict.reduced <- predict.lm(lm.reduced,test.data)
+  error.reduced[i] <- sqrt(mean((test.data$lscore - predict.reduced)^2))
+}
+
+RMSPE.full = mean(error.full)
+RMSPE.reduced = mean(error.reduced)
+RMSPE.full
+RMSPE.reduced
+```
+
+```{r}
+plot(error.full, ylim=c(0,0.4), pch=16,ylab="Prediction Error")
+points(error.reduced, col='blue', pch=4) #generally black points are below blue points
+abline(h=mean(error.full), lty=2, col='black')
+abline(h=mean(error.reduced), lty=3, col='blue')
+legend('topright', legend=c('full','reduced'), pch=c(16,4), col=c('black','blue'))
+```

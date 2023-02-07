@@ -1,7 +1,7 @@
 ---
 title: "Vision Project Part 2"
 author: "Brian Dang & Ethan Mai & Naomi Wilcox"
-date: "`r format(Sys.time(), '%d %B %Y')`"
+date: "11/22/2022"
 output: pdf_document
 ---
 
@@ -17,7 +17,7 @@ library(glmnet)
 library(class)
 library(knitr)
 
-data = read.csv('data/dataframev2.csv')
+data = read.csv('~/Downloads/dataframev2.csv')
 data <- data %>%
   rename(
     "irf3" = "vol_irf3",
@@ -35,7 +35,7 @@ table(data$class)
 ```
 
 Table of Contents:
-1. Normalize variables via z-score for kNN
+1. kNN: Normalize variables via z-score
 2. Create training and testing sets
 3. kNN: Test Initial Models
 4. kNN: Determine Optimal k
@@ -43,12 +43,10 @@ Table of Contents:
 6. Multinomial Regression
 7. Pairs plots
 8. Lasso
-9. Finding optima lambda
+9. Finding optimal lambda
 10. Lasso Prediction
-11. Repeated 5-fold CV
-12. Boxplot comparing methods, repeated CV
 
-## Normalize variables via z-score for kNN
+# 1. kNN: Normalize variables via z-score
 
 ```{r}
 summary(data$srf3)
@@ -138,7 +136,7 @@ for (i in 1:6){
 #summary(data[,18])
 ```
 
-# Create training and testing sets
+# 2. Create training and testing sets
 
 ```{r}
 nn <- dim(data)[1]
@@ -154,7 +152,7 @@ table(test$class)
 table(train$class)
 ```
 
-# kNN: Test Initial Models
+# 3. kNN: Test Initial Models
 
 The non-numerical features used here are: 'agegroup', 'gender', and 'ethnicity'. We treat these as follows:
 
@@ -211,7 +209,7 @@ misclass.knn
 
 From the above we notice that the biomarker+VA misclassification is consistently the lowest, and thus the best. Thus, we continue with only the biomarkers+VA at time 3 as features.
 
-# kNN: Determine Optimal k
+# 4. kNN: Determine Optimal k
 
 Below is repeated LOOCV with the entire dataset, not with the previously specified training set. LOOCV is implemented only for the purpose of finding the optimal k here.
 
@@ -235,7 +233,7 @@ boxplot(cv.rep.mis, ylab='Misclassification rate', xlab='k in kNN',
         title='LOOCV over 200 repetitions')
 ```
 
-# kNN: Final Model
+# 5. kNN: Final Model
 
 It seems that k=15 is optimal. Thus this is the k for our final model. Below we find the error rate over 2000 repetitions of this final model, given the original test-train data split.
 
@@ -253,14 +251,10 @@ summary(mis.final)
 
 ```
 
-
-
-
-
-# Multinomial Regression
+# 6. Multinomial Regression
 
 ```{r}
-data = read.csv('data/dataframev2.csv')
+data = read.csv('~/Downloads/dataframev2.csv')
 data <- data %>%
   rename(
     "irf4" = "vol_irf4",
@@ -306,7 +300,7 @@ test <- data[tst,]
 train <- data[-tst,]
 ```
 
-# Pairs plots
+# 7. Pairs plots
 
 ```{r}
 ggpairs(data, columns = c(42, 8,5,3, 13,18,23,28,33,38), columnLabels = c("Class","VA3","Gender","Ethnicity", "IRF3","RPE3","SRF3","PED3","SHRM3","IRHR3"))
@@ -337,9 +331,6 @@ kable(p, caption = "2-tailed z test for model coefficients", col.names = lab) %>
   kable_styling(latex_options = c("striped")) %>%
   landscape
 
-##predicted probabilities
-#fitted(mlogist)[1:20,]
-#predict(mlogist)[1:20]
 kable(cbind(1:5,table(Predicted=predict(mlogist, newdata = test),True=test$class)), row.names = F, caption = "Test Set: Predicted vs. True classification", col.names = c("Predicted Class","1","2","3","4","5")) %>%
   add_header_above(header = c(" ","True Class"=5))
 
@@ -360,8 +351,7 @@ p_1 = P(Y=1|\vec X) = \frac{1}{1+\sum_{k=1}^4 exp \left( \beta_0 + \beta_{1k}VA3
 \end{aligned}
 $$
 
-
-# Lasso
+# 8. Lasso
 ```{r}
 xxx <- model.matrix(~.,train[,xnams])
 yyy <- train$class
@@ -370,8 +360,7 @@ lasso2 <- glmnet(xxx,yyy, family = "multinomial", alpha = 1, lambda = gridd)
 lasso2$beta
 ```
 
-
-#Finding optima lambda
+# 9. Finding optimal lambda
 ```{r}
 set.seed(123)
 cv.lso2 <- cv.glmnet(xxx,yyy,family="multinomial",type.multinomial = "grouped", alpha = 1, intercept = T)
@@ -388,7 +377,7 @@ kable(cbind(1:5,l2), col.names = c("Class",lab), caption = "Training Set: LASSO 
 ```
 
 
-# Lasso Prediction
+# 10. Lasso Prediction
 ```{r}
 lasso3 <- glmnet(xxx,yyy, family = "multinomial", alpha = 1)
 lso.train.pred <- predict(lasso3, newx =  model.matrix(~.,train[,xnams]), s=lmin, type = "class")
@@ -412,161 +401,4 @@ sum(diag(t2))/sum(t2)
 ```
 
 
-
-# Repeated 5-fold CV
-
-```{r}
-cost.fn <- function(r, pii = 0) mean(abs(r-pii) > 0.5)
-##BEGIN CV FN
-
-
-
-#fmla <- fmla1
-
-cv_loki.fn <- function(stsd,dataa, methodd, fmlaa, responsee, costt,numflds,xnamms, resp.coll, knn.numm){
-               if (stsd == TRUE) {set.seed(1988)}
-               nn <- dim(dataa)[1]
-               kk <- floor(nn/numflds) ##size of each fold. May need to tweak
-               fitt.pred <- rep(NA,nn)
-#cat(nn,"\t",kk,"\t", mean(fitt.pred),"\n")
-
-               fold <- list(NULL)
-               fold[[1]] <- sample((1:nn),kk) ## sample to get first fold
-               for (i in 2:(numflds-1)){ ##sample to get each  fold
-                    fold[[i]] <- sample((1:nn)[-unlist(fold[1:(i-1)])],kk)
-               }
-               fold[[numflds]] <- (1:nn)[-unlist(fold[1:(numflds-1)])] ##last fold may not have size kk
- 
-              for (i in 1:length(fold)){ ##get held-out set, and training set
-                  heldoutt <- fold[[i]]
-                  trainn <- dataa[-heldoutt,] 
-                  if (methodd == "ldaa"){ 
-                      fitt <- lda(fmla,data = trainn,na.rm=T)
-                      fp <- predict(fitt,dataa[heldoutt,])$posterior[,2]
-                   }
-                  else if (methodd=="logisticc"){
-                       fitt <- glm(fmla,data = trainn, family=binomial,na.action=na.omit)
-                       fp <- predict(fitt, dataa[heldoutt,], type = "response")
-                   }
-                   else if (methodd == "qdaa"){ 
-                       fitt <- qda(fmla,data = trainn,na.rm=T)
-                       fp <- predict(fitt,dataa[heldoutt,])$posterior[,2]
-                   }
-                   else if (methodd=="knnn"){
-                        fitt <- knn(trainn[,xnamms],dataa[heldoutt,xnamms],trainn[,resp.coll],knn.numm)
-                        fp <- as.numeric(fitt)-1
-                   }
-#cat(i, "\t",length(fp),"\t", length(heldoutt),"\t",dim(trainn),"\t", mean(fp),"\n")
-#cat(round(fp,2))
-                   fitt.pred[heldoutt]  <- fp
-#cat(i, "\t",length(fp),"\t", length(heldoutt),"\t",dim(trainn),"\n")
-#cat(mean(fp),"\t", mean(fitt.pred[!is.na(fitt.pred)]), "\t", sum(!is.na(fitt.pred)),"\n")
-                   rm(heldoutt,trainn,fp)
-              }
-              errorr <- costt(responsee,fitt.pred)
-#              acc.tbl <- table(dataa[,resp.coll],fitt.pred>0.5) 
-#              acc <- sum(diag(acc.tbl))/sum(acc.tbl)
-              outt <- list(numflds, methodd,fitt.pred, errorr)
-              names(outt) <- c("number of folds", "fittting method", "predicted probabilities","error")
-#cat(coef(fitt), "\n",length(fitt.pred), mean(fitt.pred),"\n")
-#cat(outt[[4]],"\n",outt[[3]])
-              outt
-}
-
-```
-
-# Boxplot comparing methods, repeated CV
-
-```{r}
-##END CV FN
-##############################################################
-xnams <- c("va3","irf3", "rpe3", "srf3", "ped3", "shrm3","irhr3")
-fmla <- as.formula(paste("improve ~ ", paste(xnams, collapse= "+")))
-
-model1 <- glm(fmla, family = binomial, data=train)
-
-
-##logistic
-jnkk <- cv_loki.fn(TRUE,data,"logisticc",fmla,as.numeric(data$improve)-1,cost.fn,dim(data)[1])
-jnkk[[4]]
-
-#### LDA
-#  jnkk <- cv_loki.fn(TRUE, Heart,"ldaa",fmla,as.numeric(Heart$AHD)-1,cost.fn,dim(Heart)[1])
-# jnkk[[4]]
-# 
-# 
-# 
-# ### QDA
-#  jnkk <- cv_loki.fn(TRUE, Heart,"qdaa",fmla,as.numeric(Heart$AHD)-1,cost.fn,dim(Heart)[1])
-# jnkk[[4]]
-
-####k-NN with $k=5$
-library(class)
-jnkk <- cv_loki.fn(TRUE,
-                    data,"knnn",fmla,as.numeric(train$data)-1,
-                    cost.fn,dim(data)[1],xnams,15,5)
-jnkk[[4]]
-
-
-################
-
-##FIVE-FOLD CV: one iteration for logistic
-#logr.fit <- glm(fmla,data = Heart, family=binomial)
-cv.glm(data,model1,cost.fn,K=5)$delta
-
-
-##TEN-FOLD: one iteration for logistic
-cv.glm(data,model1,cost.fn,K=10)$delta
-
-###########################################################
-###FIVE-FOLD cross validation misclassification error for Heart data for
-##logistic, lda, qda, kNN
-
-
-###Logistic
- jnkk <- cv_loki.fn(TRUE, data,"logisticc",fmla,as.numeric(data$improve)-1,cost.fn,5)
-jnkk[[4]]
-
-# ##### LDA
-#  jnkk <- cv_loki.fn(TRUE,Heart,"ldaa",fmla,as.numeric(Heart$AHD)-1,cost.fn,5)
-# jnkk[[4]]
-# 
-# #### QDA
-#  jnkk <- cv_loki.fn(TRUE,Heart,"qdaa",fmla,as.numeric(Heart$AHD)-1,cost.fn,5)
-# jnkk[[4]]
-
-######k-NN with $k=5$
- jnkk <- cv_loki.fn(TRUE,data,"knnn",fmla,as.numeric(data$improve)-1,cost.fn,5,xnams,15,5)
-jnkk[[4]]
-
-
-
-################################################################
-###REPEATED CV
-
-### doing repeated CV
-numcvs <- 100
-
-lgg <- rep(-1,numcvs) #logistic
-# ldd <- rep(-1,numcvs) #lda
-# qdd <- rep(-1,numcvs) #qda
-kkn <- rep(-1,numcvs) #knn
-stsdd <- FALSE
-
-
-for (j in 1:numcvs){
-         cat(j)
-          lgg[j] <- cv_loki.fn(stsdd,data,"logisticc",fmla,as.numeric(data$improve)-1,cost.fn,5,FALSE)[[4]]
-         # ldd[j] <- cv_loki.fn(stsdd,Heart,"ldaa",fmla,as.numeric(Heart$AHD)-1,cost.fn,5,FALSE)[[4]]
-         # qdd[j] <- cv_loki.fn(stsdd,Heart,"qdaa",fmla,as.numeric(Heart$AHD)-1,cost.fn,5,0,15)[[4]]
-         kkn[j] <- cv_loki.fn(stsdd,data,"knnn",fmla,as.numeric(data$improve)-1,cost.fn,5,xnams,15,5)[[4]]
-}
-
-repcv.df <-data.frame(c(rep("logistic",numcvs),rep("knn",numcvs)), c(lgg,kkn),row.names=NULL)
-
-names(repcv.df) <- c("Method", "Error")
-
-boxplot(repcv.df$Error~repcv.df$Method)
-
-```
 
